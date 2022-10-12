@@ -29,7 +29,7 @@ defmodule QuaggaDef do
   @typedoc """
   A map representing the Quagga conventions for log entry contents
   """
-  @type log_def :: Map.t()
+  @type log_def :: map
 
   @base_log_bits 56
   @base_logs_end :math.pow(2, @base_log_bits) |> trunc |> then(fn n -> n - 1 end)
