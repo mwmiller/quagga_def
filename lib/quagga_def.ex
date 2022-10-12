@@ -115,9 +115,17 @@ defmodule QuaggaDef do
   end
 
   @doc """
-  Computes the correct `log_id` for a given `base_log` and `facet_id`
+  Computes the correct `log_id` given a `base_log_id` or atomic name
+  and a `facet_id`
   """
-  @spec facet_log(base_log_id, facet_id) :: log_id | :error
+  @spec facet_log(base_log_id | atom, facet_id) :: log_id | :error
+  def facet_log(name, facet_id) when is_atom(name) do
+    case base_log(name) do
+      :error -> :error
+      base -> facet_log(base, facet_id)
+    end
+  end
+
   def facet_log(base_log, facet_id)
       when base_log <= @base_logs_end and facet_id <= 255 and facet_id >= 0 do
     base_log ||| facet_id <<< 56

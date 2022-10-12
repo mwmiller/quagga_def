@@ -50,9 +50,11 @@ defmodule QuaggaDefTest do
 
   test "facet_log" do
     assert 0 == QuaggaDef.facet_log(0, 0)
+    assert 0 == QuaggaDef.facet_log(:test, 0)
     assert 1 == QuaggaDef.facet_log(1, 0)
     assert 18_446_744_073_709_551_615 == QuaggaDef.facet_log(72_057_594_037_927_935, 255)
     assert :error == QuaggaDef.facet_log(72_057_594_037_927_936, 0)
     assert :error == QuaggaDef.facet_log(0, 256)
+    assert :error == QuaggaDef.facet_log(:private, 0)
   end
 end
