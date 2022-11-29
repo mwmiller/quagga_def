@@ -36,6 +36,7 @@ defmodule QuaggaDef do
   @log_to_def %{
     0 => %{encoding: :raw, type: "text/plain", name: :test},
     53 => %{encoding: :cbor, type: :map, name: :alias},
+    101 => %{encoding: :cbor, type: :map, name: :react},
     533 => %{encoding: :cbor, type: :map, name: :reply},
     749 => %{encoding: :cbor, type: :map, name: :tag},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
