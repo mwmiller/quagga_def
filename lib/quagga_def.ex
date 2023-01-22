@@ -41,6 +41,7 @@ defmodule QuaggaDef do
     533 => %{encoding: :cbor, type: :map, name: :reply},
     749 => %{encoding: :cbor, type: :map, name: :tag},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
+    7310 => %{encoding: :cbor, type: :map, name: :lexicon},
     8483 => %{encoding: :cbor, type: :map, name: :oasis},
     360_360 => %{encoding: :cbor, type: :map, name: :journal}
   }
