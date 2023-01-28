@@ -38,10 +38,14 @@ defmodule QuaggaDef do
     53 => %{encoding: :cbor, type: :map, name: :alias},
     101 => %{encoding: :cbor, type: :map, name: :react},
     121 => %{encoding: :cbor, type: :map, name: :mention},
+    360 => %{encoding: :cbor, type: :map, name: :about},
     533 => %{encoding: :cbor, type: :map, name: :reply},
     749 => %{encoding: :cbor, type: :map, name: :tag},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
     7310 => %{encoding: :cbor, type: :map, name: :lexicon},
+    8008 => %{encoding: :raw, type: "image/jpg", name: :jpg},
+    8009 => %{encoding: :raw, type: "image/png", name: :png},
+    8010 => %{encoding: :raw, type: "image/gif", name: :gif},
     8483 => %{encoding: :cbor, type: :map, name: :oasis},
     360_360 => %{encoding: :cbor, type: :map, name: :journal}
   }
