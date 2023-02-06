@@ -32,7 +32,7 @@ defmodule QuaggaDefTest do
     assert 53 == QuaggaDef.base_log(53)
     assert 53 == QuaggaDef.base_log(72_057_594_037_927_989)
     assert 0 == QuaggaDef.base_log(72_057_594_037_927_936)
-    assert :error == QuaggaDef.base_log(:private)
+    assert 8008 == QuaggaDef.base_log("image/jpeg")
     assert :error == QuaggaDef.base_log("test")
   end
 
@@ -43,8 +43,8 @@ defmodule QuaggaDefTest do
 
   test "logs_for_encoding" do
     # On the nose
-    assert length(QuaggaDef.logs_for_encoding(:raw)) == 256
-    assert length(QuaggaDef.logs_for_encoding(:cbor)) == 1280
+    assert length(QuaggaDef.logs_for_encoding(:raw)) == 1024
+    assert length(QuaggaDef.logs_for_encoding(:cbor)) == 2560
     assert length(QuaggaDef.logs_for_encoding(:xml)) == 0
   end
 

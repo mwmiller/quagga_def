@@ -43,7 +43,7 @@ defmodule QuaggaDef do
     749 => %{encoding: :cbor, type: :map, name: :tag},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
     7310 => %{encoding: :cbor, type: :map, name: :lexicon},
-    8008 => %{encoding: :raw, type: "image/jpg", name: :jpg},
+    8008 => %{encoding: :raw, type: "image/jpeg", name: :jpeg},
     8009 => %{encoding: :raw, type: "image/png", name: :png},
     8010 => %{encoding: :raw, type: "image/gif", name: :gif},
     8483 => %{encoding: :cbor, type: :map, name: :oasis},
@@ -51,6 +51,11 @@ defmodule QuaggaDef do
   }
 
   @name_to_log @log_to_def |> Enum.reduce(%{}, fn {l, %{name: n}}, a -> Map.put(a, n, l) end)
+  @type_to_log @log_to_def
+               |> Enum.reduce(%{}, fn
+                 {l, %{type: t}}, a when is_binary(t) -> Map.put(a, t, l)
+                 _, a -> a
+               end)
   @encoding_to_logs @log_to_def
                     |> Enum.reduce(%{}, fn {l, %{encoding: e}}, a ->
                       Map.update(a, e, [l], fn x -> [l | x] end)
@@ -88,9 +93,10 @@ defmodule QuaggaDef do
   def log_def(_), do: :error
 
   @doc """
-  The `base_log_id` for a provided atomic name or integer `log_id`
+  The `base_log_id` for a provided atomic name, string type or integer `log_id`
   """
-  @spec base_log(atom | log_id) :: base_log_id | :error
+  @spec base_log(atom | log_id | binary) :: base_log_id | :error
+  def base_log(t) when is_binary(t), do: Map.get(@type_to_log, t, :error)
   def base_log(n) when is_atom(n), do: Map.get(@name_to_log, n, :error)
 
   def base_log(n) when is_integer(n) do
