@@ -147,6 +147,15 @@ defmodule QuaggaDef do
 
   def facet_log(_, _), do: :error
 
+  @doc """
+  The canonical bootstrap node for the `Quagga` clump.
+
+  Returns a `{host, port}` tuple identifying the well-known peer used to
+  seed peer discovery when first joining the clump.
+  """
+  @spec bootstrap_node :: {binary, integer}
+  def bootstrap_node, do: {"quagga.zebrine.net", 8483}
+
   for base_log <- Map.keys(@log_to_def) do
     matches = Enum.reduce(1..255, [base_log], fn i, a -> [base_log ||| i <<< 56 | a] end)
     defp samebase_logs(n) when n in unquote(matches), do: unquote(matches)

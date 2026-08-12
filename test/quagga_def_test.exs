@@ -57,4 +57,8 @@ defmodule QuaggaDefTest do
     assert :error == QuaggaDef.facet_log(0, 256)
     assert :error == QuaggaDef.facet_log(:private, 0)
   end
+
+  test "bootstrap_node" do
+    assert {"quagga.zebrine.net", 8483} == QuaggaDef.bootstrap_node()
+  end
 end
