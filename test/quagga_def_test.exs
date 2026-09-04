@@ -1,6 +1,7 @@
 defmodule QuaggaDefTest do
   use ExUnit.Case
   doctest QuaggaDef
+  import Bitwise
 
   test "log_id_unpack" do
     assert :error == QuaggaDef.log_id_unpack(:test)
@@ -75,5 +76,56 @@ defmodule QuaggaDefTest do
     assert 777 in QuaggaDef.logs_for_name(:challenge)
     # And a specific facet
     assert 72_057_594_037_928_713 == QuaggaDef.facet_log(:challenge, 1)
+  end
+
+  test "reserved_base_log?" do
+    # All hand-allocated log ids are in the low 48 bits (not reserved)
+    assert false == QuaggaDef.reserved_base_log?(0)
+    assert false == QuaggaDef.reserved_base_log?(777)
+    assert false == QuaggaDef.reserved_base_log?(360_360)
+
+    # Derived ids carry the reserved marker nibble
+    assert true == QuaggaDef.reserved_base_log?(QuaggaDef.derived_log_base(1))
+
+    # Even with a facet applied, the base remains derived/reserved
+    game_log_id = QuaggaDef.facet_log(QuaggaDef.derived_log_base(1), 7)
+    assert true == QuaggaDef.reserved_base_log?(game_log_id)
+  end
+
+  test "derived_log_base" do
+    # Backgammon family default: family tag 0x1 placed in bits 48..55
+    assert 281_474_976_710_656 == QuaggaDef.derived_log_base(0)
+
+    # A different family tag lands in the same reserved space with a distinct byte
+    assert 562_949_953_421_312 == QuaggaDef.derived_log_base(0, 2)
+    assert QuaggaDef.derived_log_base(0, 1) != QuaggaDef.derived_log_base(0, 2)
+
+    # Result always has the reserved family byte set and stays in the base range
+    for n <- [0, 1, 65535, 0xFFFFFFFF, 2_000_000_000_000_000_000] do
+      dl = QuaggaDef.derived_log_base(n)
+      assert dl >= 1 <<< 48
+      assert dl <= 72_057_594_037_927_935
+      assert true == QuaggaDef.reserved_base_log?(dl)
+    end
+
+    # Two different inputs fold to different derived bases (low 48 bits preserved)
+    assert QuaggaDef.derived_log_base(1) != QuaggaDef.derived_log_base(2)
+  end
+
+  test "family_for_block" do
+    # Hand-allocated log ids are :unknown
+    assert :unknown == QuaggaDef.family_for_block(0)
+    assert :unknown == QuaggaDef.family_for_block(777)
+
+    # Backgammon tags resolve to :backgammon
+    assert :backgammon == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(1_234_567))
+    assert :backgammon == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(0, 1))
+
+    # A game log id (facet applied) still resolves to :backgammon
+    game_log_id = QuaggaDef.facet_log(QuaggaDef.derived_log_base(42), 7)
+    assert :backgammon == QuaggaDef.family_for_block(game_log_id)
+
+    # An unrecognized family tag is :unknown
+    assert :unknown == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(1, 14))
   end
 end

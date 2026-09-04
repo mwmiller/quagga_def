@@ -33,15 +33,31 @@ defmodule QuaggaDef do
 
   @base_log_bits 56
   @base_logs_end :math.pow(2, @base_log_bits) |> trunc |> then(fn n -> n - 1 end)
+  # The top byte of the 56-bit base-log space (bits 48..55) is the *family tag*
+  # for derived logs (e.g. game logs). It is always non-zero for a derived log,
+  # so those can never collide with the hand-allocated IDs in `@log_to_def`,
+  # all of which live in the low 48 bits and therefore always carry a zero byte.
+  #
+  # A zero family byte means the base log is hand-allocated (not reserved).
+  # A non-zero family byte tags the derived-log family (e.g. 0x1 = backgammon),
+  # so unrelated derived-log families can share the space and indexers can
+  # filter by kind.
+  @reserved_log_value_bits 48
+  @reserved_log_value_mask :math.pow(2, @reserved_log_value_bits)
+                           |> trunc
+                           |> then(fn n -> n - 1 end)
+  # Family tags (bits 48..55) for the derived-log space.
+  @family_backgammon 0x1
+  @families [backgammon: @family_backgammon]
   @log_to_def %{
     0 => %{encoding: :raw, type: "text/plain", name: :test},
     53 => %{encoding: :cbor, type: :map, name: :alias},
     101 => %{encoding: :cbor, type: :map, name: :react},
     121 => %{encoding: :cbor, type: :map, name: :mention},
     360 => %{encoding: :cbor, type: :map, name: :about},
-     533 => %{encoding: :cbor, type: :map, name: :reply},
-     749 => %{encoding: :cbor, type: :map, name: :tag},
-     777 => %{encoding: :cbor, type: :map, name: :challenge},
+    533 => %{encoding: :cbor, type: :map, name: :reply},
+    749 => %{encoding: :cbor, type: :map, name: :tag},
+    777 => %{encoding: :cbor, type: :map, name: :challenge},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
     7310 => %{encoding: :cbor, type: :map, name: :lexicon},
     8008 => %{encoding: :raw, type: "image/jpeg", name: :jpeg},
@@ -147,6 +163,72 @@ defmodule QuaggaDef do
   end
 
   def facet_log(_, _), do: :error
+
+  @doc """
+  Whether a given `base_log_id` is a reserved (derived) log.
+
+  Any base log with a non-zero family byte (bits 48..55) is a derived log,
+  never a hand-allocated ID (all of which live in the low 48 bits).
+  """
+  @spec reserved_base_log?(base_log_id | log_id) :: boolean
+  def reserved_base_log?(n) when is_integer(n) do
+    {base_log, _} = log_id_unpack(n)
+    family_byte(base_log) != 0
+  end
+
+  def reserved_base_log?(_), do: false
+
+  @doc """
+  Fold a hash-derived value into the reserved base-log range for a family.
+
+  `n` is any unsigned integer (e.g. the first 6 bytes of a SHA-256). The low
+  48 bits are preserved as the log's identity, and `family` (a value in
+  `1..255`) is placed in bits 48..55 as the family tag.
+
+  `family` defaults to the backgammon family tag.
+
+  ## Examples
+
+      iex> QuaggaDef.derived_log_base(0)
+      281474976710656
+
+      iex> QuaggaDef.derived_log_base(0, 2)
+      562949953421312
+
+      iex> QuaggaDef.family_for_block(QuaggaDef.derived_log_base(0))
+      :backgammon
+
+  """
+  @spec derived_log_base(pos_integer, 1..255) :: base_log_id
+  def derived_log_base(n, family \\ @family_backgammon)
+
+  def derived_log_base(n, family)
+      when is_integer(n) and n >= 0 and is_integer(family) and family >= 1 and family <= 255 do
+    band(n, @reserved_log_value_mask) ||| family <<< 48
+  end
+
+  @doc """
+  The family tag (bits 48..55) of a base-log ID, as an atom.
+
+  Returns `:unknown` for hand-allocated (non-reserved) IDs or unrecognized tags.
+  """
+  @spec family_for_block(base_log_id | log_id) :: atom
+  def family_for_block(n) when is_integer(n) do
+    {base_log, _} = log_id_unpack(n)
+    tag = family_byte(base_log)
+
+    if tag == 0 do
+      :unknown
+    else
+      Enum.find_value(@families, :unknown, fn {atom, val} ->
+        if val == tag, do: atom
+      end)
+    end
+  end
+
+  def family_for_block(_), do: :unknown
+
+  defp family_byte(base_log), do: band(bsr(base_log, 48), 0xFF)
 
   @doc """
   The canonical bootstrap node for the `Quagga` clump.
