@@ -44,7 +44,7 @@ defmodule QuaggaDefTest do
   test "logs_for_encoding" do
     # On the nose
     assert length(QuaggaDef.logs_for_encoding(:raw)) == 1024
-    assert length(QuaggaDef.logs_for_encoding(:cbor)) == 2560
+    assert length(QuaggaDef.logs_for_encoding(:cbor)) == 2816
     assert length(QuaggaDef.logs_for_encoding(:xml)) == 0
   end
 
@@ -60,5 +60,20 @@ defmodule QuaggaDefTest do
 
   test "bootstrap_node" do
     assert {"quagga.zebrine.net", 8483} == QuaggaDef.bootstrap_node()
+  end
+
+  test "challenge log" do
+    chal = %{encoding: :cbor, type: :map, name: :challenge}
+
+    assert 777 == QuaggaDef.base_log(:challenge)
+    assert chal == QuaggaDef.log_def(777)
+    assert chal == QuaggaDef.log_def(777)
+
+    # Facet iteration over the challenge log yields a full set
+    assert length(QuaggaDef.logs_for_name(:challenge)) == 256
+    # The un-faceted id is the first in the set
+    assert 777 in QuaggaDef.logs_for_name(:challenge)
+    # And a specific facet
+    assert 72_057_594_037_928_713 == QuaggaDef.facet_log(:challenge, 1)
   end
 end
