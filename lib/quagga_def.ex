@@ -47,6 +47,9 @@ defmodule QuaggaDef do
                            |> trunc
                            |> then(fn n -> n - 1 end)
   # Family tags (bits 48..55) for the derived-log space.
+  # Support for a game is what the tag means: a registered game family gets a
+  # concrete ruleset, while any other non-zero byte is still a valid derived
+  # log family that clients render by its tag.
   @family_backgammon 0x1
   @families [backgammon: @family_backgammon]
   @log_to_def %{
@@ -227,6 +230,50 @@ defmodule QuaggaDef do
   end
 
   def family_for_block(_), do: :unknown
+
+  @doc """
+  The registered derived-log families, as `{name, tag_byte}` tuples.
+
+  Families describe the ruleset for a derived (game) log. Only registered
+  families get a concrete label; other non-zero tag bytes are still valid
+  derived-log families and render by their numeric tag.
+  """
+  @spec families() :: [{atom, 1..255}]
+  def families, do: @families
+
+  @doc """
+  The tag byte for a registered family name, or `:error` if unknown.
+
+  ## Examples
+
+      iex> QuaggaDef.family_tag(:backgammon)
+      1
+
+      iex> QuaggaDef.family_tag(:poker)
+      :error
+
+  """
+  @spec family_tag(atom) :: 1..255 | :error
+  def family_tag(name) when is_atom(name) do
+    Keyword.get(@families, name, :error)
+  end
+
+  @doc """
+  The registered family name for a tag byte, or `:unknown` if unregistered.
+
+  ## Examples
+
+      iex> QuaggaDef.family_name(1)
+      :backgammon
+
+      iex> QuaggaDef.family_name(14)
+      :unknown
+
+  """
+  @spec family_name(1..255) :: atom
+  def family_name(tag) when is_integer(tag) and tag >= 1 and tag <= 255 do
+    Enum.find_value(@families, :unknown, fn {name, t} -> if t == tag, do: name end)
+  end
 
   defp family_byte(base_log), do: band(bsr(base_log, 48), 0xFF)
 

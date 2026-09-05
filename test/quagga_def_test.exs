@@ -128,4 +128,21 @@ defmodule QuaggaDefTest do
     # An unrecognized family tag is :unknown
     assert :unknown == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(1, 14))
   end
+
+  test "families" do
+    families = QuaggaDef.families()
+    assert is_list(families)
+    assert [{:backgammon, 1}] == families
+  end
+
+  test "family_tag" do
+    assert 1 == QuaggaDef.family_tag(:backgammon)
+    assert :error == QuaggaDef.family_tag(:poker)
+  end
+
+  test "family_name" do
+    assert :backgammon == QuaggaDef.family_name(1)
+    assert :unknown == QuaggaDef.family_name(14)
+    assert :unknown == QuaggaDef.family_name(255)
+  end
 end
