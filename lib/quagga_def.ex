@@ -33,6 +33,35 @@ defmodule QuaggaDef do
 
   @base_log_bits 56
   @base_logs_end :math.pow(2, @base_log_bits) |> trunc |> then(fn n -> n - 1 end)
+  # The top byte of the 56-bit base-log space (bits 48..55) is the *family tag*
+  # for derived logs (e.g. game logs). It is always non-zero for a derived log,
+  # so those can never collide with the hand-allocated IDs in `@log_to_def`,
+  # all of which live in the low 48 bits and therefore always carry a zero byte.
+  #
+  # A zero family byte means the base log is hand-allocated (not reserved).
+  # A non-zero family byte tags the derived-log family (e.g. 0x1 = backgammon),
+  # so unrelated derived-log families can share the space and indexers can
+  # filter by kind.
+  @reserved_log_value_bits 48
+  @reserved_log_value_mask :math.pow(2, @reserved_log_value_bits)
+                           |> trunc
+                           |> then(fn n -> n - 1 end)
+  # Family tags (bits 48..55) for the derived-log space.
+  # Support for a game is what the tag means: a registered game family gets a
+  # concrete ruleset, while any other non-zero byte is still a valid derived
+  # log family that clients render by its tag.
+  #
+  # Each family also names the *control log* through which its derived logs
+  # are announced and discovered. A control log is a hand-allocated entry in
+  # `@log_to_def`, so `control_logs/1` yields the facet-expanded scan list an
+  # index worker needs and `family_for_control_log/1` names the family a
+  # control-log entry belongs to.
+  @family_backgammon 0x1
+  @family_app 0x2
+  @families %{
+    backgammon: %{tag: @family_backgammon, control_log: :challenge},
+    app: %{tag: @family_app, control_log: :app_discovery}
+  }
   @log_to_def %{
     0 => %{encoding: :raw, type: "text/plain", name: :test},
     53 => %{encoding: :cbor, type: :map, name: :alias},
@@ -41,7 +70,9 @@ defmodule QuaggaDef do
     360 => %{encoding: :cbor, type: :map, name: :about},
     533 => %{encoding: :cbor, type: :map, name: :reply},
     749 => %{encoding: :cbor, type: :map, name: :tag},
+    777 => %{encoding: :cbor, type: :map, name: :challenge},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
+    2777 => %{encoding: :cbor, type: :map, name: :app_discovery},
     7310 => %{encoding: :cbor, type: :map, name: :lexicon},
     8008 => %{encoding: :raw, type: "image/jpeg", name: :jpeg},
     8009 => %{encoding: :raw, type: "image/png", name: :png},
@@ -60,6 +91,32 @@ defmodule QuaggaDef do
                     |> Enum.reduce(%{}, fn {l, %{encoding: e}}, a ->
                       Map.update(a, e, [l], fn x -> [l | x] end)
                     end)
+
+  # Family definitions are checked at compile time, so a malformed registry
+  # cannot reach hex: every family carries a usable tag and a control log
+  # that actually exists in `@log_to_def`, and no two families claim the
+  # same tag or the same control log.
+  family_tags = Enum.map(@families, fn {_, %{tag: t}} -> t end)
+  family_controls = Enum.map(@families, fn {_, %{control_log: c}} -> c end)
+
+  _ =
+    Enum.each(@families, fn {fam, %{tag: tag, control_log: control}} ->
+      unless is_integer(tag) and tag >= 1 and tag <= 255 do
+        raise "quagga_def family #{inspect(fam)} has an invalid tag: #{inspect(tag)}"
+      end
+
+      unless Map.has_key?(@name_to_log, control) do
+        raise "quagga_def family #{inspect(fam)} names a control log absent from @log_to_def: #{inspect(control)}"
+      end
+    end)
+
+  if Enum.uniq(family_tags) != family_tags do
+    raise "quagga_def family tags must be unique: #{inspect(family_tags)}"
+  end
+
+  if Enum.uniq(family_controls) != family_controls do
+    raise "quagga_def family control logs must be unique: #{inspect(family_controls)}"
+  end
 
   @doc """
   Unpack a given integer log_id into a tuple with
@@ -146,6 +203,252 @@ defmodule QuaggaDef do
   end
 
   def facet_log(_, _), do: :error
+
+  @doc """
+  Whether a given `base_log_id` is a reserved (derived) log.
+
+  Any base log with a non-zero family byte (bits 48..55) is a derived log,
+  never a hand-allocated ID (all of which live in the low 48 bits).
+  """
+  @spec reserved_base_log?(base_log_id | log_id) :: boolean
+  def reserved_base_log?(n) when is_integer(n) do
+    {base_log, _} = log_id_unpack(n)
+    family_byte(base_log) != 0
+  end
+
+  def reserved_base_log?(_), do: false
+
+  @doc """
+  Fold a hash-derived value into the reserved base-log range for a family.
+
+  `n` is any unsigned integer (e.g. the first 6 bytes of a SHA-256). The low
+  48 bits are preserved as the log's identity, and `family` (a value in
+  `1..255`) is placed in bits 48..55 as the family tag.
+
+  `family` defaults to the backgammon family tag.
+
+  ## Examples
+
+      iex> QuaggaDef.derived_log_base(0)
+      281474976710656
+
+      iex> QuaggaDef.derived_log_base(0, 2)
+      562949953421312
+
+      iex> QuaggaDef.family_for_block(QuaggaDef.derived_log_base(0))
+      :backgammon
+
+      iex> QuaggaDef.family_for_block(QuaggaDef.derived_log_base(0, 2))
+      :app
+
+  """
+  @spec derived_log_base(pos_integer, 1..255) :: base_log_id
+  def derived_log_base(n, family \\ @family_backgammon)
+
+  def derived_log_base(n, family)
+      when is_integer(n) and n >= 0 and is_integer(family) and family >= 1 and family <= 255 do
+    band(n, @reserved_log_value_mask) ||| family <<< 48
+  end
+
+  @doc """
+  The family tag (bits 48..55) of a base-log ID, as an atom.
+
+  Returns `:unknown` for hand-allocated (non-reserved) IDs or unrecognized tags.
+  """
+  @spec family_for_block(base_log_id | log_id) :: atom
+  def family_for_block(n) when is_integer(n) do
+    {base_log, _} = log_id_unpack(n)
+    tag = family_byte(base_log)
+
+    if tag == 0 do
+      :unknown
+    else
+      Enum.find_value(@families, :unknown, fn {atom, %{tag: t}} ->
+        if t == tag, do: atom
+      end)
+    end
+  end
+
+  def family_for_block(_), do: :unknown
+
+  @doc """
+  The registered family definitions, keyed by family name.
+
+  Each definition carries the family's `tag` byte and the `control_log`
+  name through which its derived logs are announced and discovered.
+
+  ## Examples
+
+      iex> QuaggaDef.family_defs()[:app]
+      %{tag: 2, control_log: :app_discovery}
+
+  """
+  @spec family_defs() :: %{optional(atom) => map}
+  def family_defs, do: @families
+
+  @doc """
+  The registered derived-log families, as `{name, tag_byte}` tuples.
+
+  Families describe the ruleset for a derived (game) log. Only registered
+  families get a concrete label; other non-zero tag bytes are still valid
+  derived-log families and render by their numeric tag.
+
+  Sorted by family name. See `family_defs/0` for the full definitions.
+  """
+  @spec families() :: [{atom, 1..255}]
+  def families do
+    @families
+    |> Enum.map(fn {name, %{tag: t}} -> {name, t} end)
+    |> Enum.sort()
+  end
+
+  @doc """
+  The `base_log_id` of a family's control log, or `:error` if the family is
+  unregistered.
+
+  ## Examples
+
+      iex> QuaggaDef.control_log(:backgammon)
+      777
+
+      iex> QuaggaDef.control_log(:app)
+      2777
+
+      iex> QuaggaDef.control_log(:poker)
+      :error
+
+  """
+  @spec control_log(atom) :: base_log_id | :error
+  def control_log(name) when is_atom(name) do
+    with %{control_log: control} <- Map.get(@families, name),
+         base when is_integer(base) <- Map.get(@name_to_log, control) do
+      base
+    else
+      _ -> :error
+    end
+  end
+
+  @doc """
+  The facet-expanded `log_id` list for one family's control log.
+
+  This is the static scan list an index worker for that family uses. Returns
+  `[]` for an unregistered family.
+
+  ## Examples
+
+      iex> length(QuaggaDef.control_logs(:backgammon))
+      256
+
+      iex> QuaggaDef.control_logs(:poker)
+      []
+
+  """
+  @spec control_logs(atom) :: [log_id]
+  def control_logs(name) do
+    case control_log(name) do
+      :error -> []
+      base -> samebase_logs(base)
+    end
+  end
+
+  @doc """
+  The facet-expanded `log_id` list covering every registered family's
+  control log, sorted.
+
+  ## Examples
+
+      iex> length(QuaggaDef.control_logs())
+      512
+
+  """
+  @spec control_logs() :: [log_id]
+  def control_logs do
+    @families
+    |> Map.keys()
+    |> Enum.flat_map(&control_logs/1)
+    |> Enum.sort()
+  end
+
+  @doc """
+  The family announced through a control log, or `:unknown`.
+
+  Accepts a `log_id`/`base_log_id` or the control log's name atom. Log IDs
+  belonging to any other log return `:unknown`.
+
+  ## Examples
+
+      iex> QuaggaDef.family_for_control_log(777)
+      :backgammon
+
+      iex> QuaggaDef.family_for_control_log(:app_discovery)
+      :app
+
+      iex> QuaggaDef.family_for_control_log(1337)
+      :unknown
+
+  """
+  @spec family_for_control_log(log_id | base_log_id | atom) :: atom
+  def family_for_control_log(t) when is_atom(t) do
+    Enum.find_value(@families, :unknown, fn {name, %{control_log: c}} ->
+      if c == t, do: name
+    end)
+  end
+
+  def family_for_control_log(n) when is_integer(n) do
+    {base, _} = log_id_unpack(n)
+
+    case Map.get(@log_to_def, base) do
+      %{name: control} -> family_for_control_log(control)
+      _ -> :unknown
+    end
+  end
+
+  def family_for_control_log(_), do: :unknown
+
+  @doc """
+  The tag byte for a registered family name, or `:error` if unknown.
+
+  ## Examples
+
+      iex> QuaggaDef.family_tag(:backgammon)
+      1
+
+      iex> QuaggaDef.family_tag(:app)
+      2
+
+      iex> QuaggaDef.family_tag(:poker)
+      :error
+
+  """
+  @spec family_tag(atom) :: 1..255 | :error
+  def family_tag(name) when is_atom(name) do
+    case Map.get(@families, name) do
+      %{tag: tag} -> tag
+      _ -> :error
+    end
+  end
+
+  @doc """
+  The registered family name for a tag byte, or `:unknown` if unregistered.
+
+  ## Examples
+
+      iex> QuaggaDef.family_name(1)
+      :backgammon
+
+      iex> QuaggaDef.family_name(2)
+      :app
+
+      iex> QuaggaDef.family_name(14)
+      :unknown
+
+  """
+  @spec family_name(1..255) :: atom
+  def family_name(tag) when is_integer(tag) and tag >= 1 and tag <= 255 do
+    Enum.find_value(@families, :unknown, fn {name, %{tag: t}} -> if t == tag, do: name end)
+  end
+
+  defp family_byte(base_log), do: band(bsr(base_log, 48), 0xFF)
 
   @doc """
   The canonical bootstrap node for the `Quagga` clump.

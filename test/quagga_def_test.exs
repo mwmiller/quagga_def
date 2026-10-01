@@ -1,6 +1,7 @@
 defmodule QuaggaDefTest do
   use ExUnit.Case
   doctest QuaggaDef
+  import Bitwise
 
   test "log_id_unpack" do
     assert :error == QuaggaDef.log_id_unpack(:test)
@@ -44,7 +45,7 @@ defmodule QuaggaDefTest do
   test "logs_for_encoding" do
     # On the nose
     assert length(QuaggaDef.logs_for_encoding(:raw)) == 1024
-    assert length(QuaggaDef.logs_for_encoding(:cbor)) == 2560
+    assert length(QuaggaDef.logs_for_encoding(:cbor)) == 3072
     assert length(QuaggaDef.logs_for_encoding(:xml)) == 0
   end
 
@@ -60,5 +61,155 @@ defmodule QuaggaDefTest do
 
   test "bootstrap_node" do
     assert {"quagga.zebrine.net", 8483} == QuaggaDef.bootstrap_node()
+  end
+
+  test "challenge log" do
+    chal = %{encoding: :cbor, type: :map, name: :challenge}
+
+    assert 777 == QuaggaDef.base_log(:challenge)
+    assert chal == QuaggaDef.log_def(777)
+    assert chal == QuaggaDef.log_def(777)
+
+    # Facet iteration over the challenge log yields a full set
+    assert length(QuaggaDef.logs_for_name(:challenge)) == 256
+    # The un-faceted id is the first in the set
+    assert 777 in QuaggaDef.logs_for_name(:challenge)
+    # And a specific facet
+    assert 72_057_594_037_928_713 == QuaggaDef.facet_log(:challenge, 1)
+  end
+
+  test "reserved_base_log?" do
+    # All hand-allocated log ids are in the low 48 bits (not reserved)
+    assert false == QuaggaDef.reserved_base_log?(0)
+    assert false == QuaggaDef.reserved_base_log?(777)
+    assert false == QuaggaDef.reserved_base_log?(360_360)
+
+    # Derived ids carry the reserved marker nibble
+    assert true == QuaggaDef.reserved_base_log?(QuaggaDef.derived_log_base(1))
+
+    # Even with a facet applied, the base remains derived/reserved
+    game_log_id = QuaggaDef.facet_log(QuaggaDef.derived_log_base(1), 7)
+    assert true == QuaggaDef.reserved_base_log?(game_log_id)
+  end
+
+  test "derived_log_base" do
+    # Backgammon family default: family tag 0x1 placed in bits 48..55
+    assert 281_474_976_710_656 == QuaggaDef.derived_log_base(0)
+
+    # A different family tag lands in the same reserved space with a distinct byte
+    assert 562_949_953_421_312 == QuaggaDef.derived_log_base(0, 2)
+    assert QuaggaDef.derived_log_base(0, 1) != QuaggaDef.derived_log_base(0, 2)
+
+    # Result always has the reserved family byte set and stays in the base range
+    for n <- [0, 1, 65535, 0xFFFFFFFF, 2_000_000_000_000_000_000] do
+      dl = QuaggaDef.derived_log_base(n)
+      assert dl >= 1 <<< 48
+      assert dl <= 72_057_594_037_927_935
+      assert true == QuaggaDef.reserved_base_log?(dl)
+    end
+
+    # Two different inputs fold to different derived bases (low 48 bits preserved)
+    assert QuaggaDef.derived_log_base(1) != QuaggaDef.derived_log_base(2)
+  end
+
+  test "family_for_block" do
+    # Hand-allocated log ids are :unknown
+    assert :unknown == QuaggaDef.family_for_block(0)
+    assert :unknown == QuaggaDef.family_for_block(777)
+
+    # Backgammon tags resolve to :backgammon
+    assert :backgammon == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(1_234_567))
+    assert :backgammon == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(0, 1))
+
+    # A game log id (facet applied) still resolves to :backgammon
+    game_log_id = QuaggaDef.facet_log(QuaggaDef.derived_log_base(42), 7)
+    assert :backgammon == QuaggaDef.family_for_block(game_log_id)
+
+    # An unrecognized family tag is :unknown
+    assert :unknown == QuaggaDef.family_for_block(QuaggaDef.derived_log_base(1, 14))
+  end
+
+  test "families" do
+    families = QuaggaDef.families()
+    assert is_list(families)
+    assert [{:app, 2}, {:backgammon, 1}] == families
+  end
+
+  test "family_tag" do
+    assert 1 == QuaggaDef.family_tag(:backgammon)
+    assert 2 == QuaggaDef.family_tag(:app)
+    assert :error == QuaggaDef.family_tag(:poker)
+  end
+
+  test "family_name" do
+    assert :backgammon == QuaggaDef.family_name(1)
+    assert :app == QuaggaDef.family_name(2)
+    assert :unknown == QuaggaDef.family_name(14)
+    assert :unknown == QuaggaDef.family_name(255)
+  end
+
+  test "app discovery log" do
+    discovery = %{encoding: :cbor, type: :map, name: :app_discovery}
+
+    assert 2777 == QuaggaDef.base_log(:app_discovery)
+    assert discovery == QuaggaDef.log_def(2777)
+    assert discovery == QuaggaDef.log_def(QuaggaDef.facet_log(2777, 1))
+
+    # It is hand-allocated, so it never reads as a derived family log
+    assert false == QuaggaDef.reserved_base_log?(2777)
+    assert :unknown == QuaggaDef.family_for_block(2777)
+
+    # Facet iteration over the discovery log yields a full set
+    assert length(QuaggaDef.logs_for_name(:app_discovery)) == 256
+    assert 2777 in QuaggaDef.logs_for_name(:app_discovery)
+  end
+
+  test "family_defs" do
+    defs = QuaggaDef.family_defs()
+
+    assert %{tag: 1, control_log: :challenge} == defs[:backgammon]
+    assert %{tag: 2, control_log: :app_discovery} == defs[:app]
+    assert nil == defs[:poker]
+  end
+
+  test "control_log" do
+    assert 777 == QuaggaDef.control_log(:backgammon)
+    assert 2777 == QuaggaDef.control_log(:app)
+    assert :error == QuaggaDef.control_log(:poker)
+  end
+
+  test "control_logs" do
+    backgammon_logs = QuaggaDef.control_logs(:backgammon)
+    assert length(backgammon_logs) == 256
+    assert backgammon_logs == QuaggaDef.logs_for_name(:challenge)
+
+    app_logs = QuaggaDef.control_logs(:app)
+    assert length(app_logs) == 256
+    assert app_logs == QuaggaDef.logs_for_name(:app_discovery)
+
+    assert [] == QuaggaDef.control_logs(:poker)
+
+    all = QuaggaDef.control_logs()
+    assert length(all) == 512
+    assert Enum.sort(all) == all
+    assert Enum.uniq(all) == all
+    assert MapSet.new(app_logs ++ backgammon_logs) == MapSet.new(all)
+  end
+
+  test "family_for_control_log" do
+    # By base id, facetted id, and by control log name
+    assert :backgammon == QuaggaDef.family_for_control_log(777)
+    assert :backgammon == QuaggaDef.family_for_control_log(QuaggaDef.facet_log(:challenge, 9))
+    assert :backgammon == QuaggaDef.family_for_control_log(:challenge)
+
+    assert :app == QuaggaDef.family_for_control_log(2777)
+    assert :app == QuaggaDef.family_for_control_log(QuaggaDef.facet_log(:app_discovery, 3))
+    assert :app == QuaggaDef.family_for_control_log(:app_discovery)
+
+    # Logs that are not control logs, and junk
+    assert :unknown == QuaggaDef.family_for_control_log(1337)
+    assert :unknown == QuaggaDef.family_for_control_log(:graph)
+    assert :unknown == QuaggaDef.family_for_control_log(QuaggaDef.derived_log_base(1))
+    assert :unknown == QuaggaDef.family_for_control_log("777")
   end
 end
