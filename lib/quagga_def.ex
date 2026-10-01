@@ -406,6 +406,77 @@ defmodule QuaggaDef do
   def family_for_control_log(_), do: :unknown
 
   @doc """
+  The control log a family publishes through, or `:error` if the family is
+  unregistered.
+
+  The name-atom sibling of `control_log/1`, which returns the log ID.
+
+  ## Examples
+
+      iex> QuaggaDef.family_control_log(:backgammon)
+      :challenge
+
+      iex> QuaggaDef.family_control_log(:app)
+      :app_discovery
+
+      iex> QuaggaDef.family_control_log(:poker)
+      :error
+
+  """
+  @spec family_control_log(atom) :: atom | :error
+  def family_control_log(name) when is_atom(name) do
+    case Map.get(@families, name) do
+      %{control_log: control} -> control
+      _ -> :error
+    end
+  end
+
+  def family_control_log(_), do: :error
+
+  @doc """
+  Every registered family announced through a control log, as `{name, tag}`,
+  sorted by name.
+
+  Accepts the control log's name atom or a `log_id`/`base_log_id`. This is the
+  filter to apply when a form or policy is scoped to a single control log —
+  a control log announces only its own families. Control logs announcing no
+  family, and unregistered logs, return `[]`.
+
+  ## Examples
+
+      iex> QuaggaDef.families_for_control_log(:challenge)
+      [backgammon: 1]
+
+      iex> QuaggaDef.families_for_control_log(777)
+      [backgammon: 1]
+
+      iex> QuaggaDef.families_for_control_log(:app_discovery)
+      [app: 2]
+
+      iex> QuaggaDef.families_for_control_log(:graph)
+      []
+
+  """
+  @spec families_for_control_log(log_id | base_log_id | atom) :: [{atom, 1..255}]
+  def families_for_control_log(n) when is_integer(n) do
+    {base, _} = log_id_unpack(n)
+
+    case Map.get(@log_to_def, base) do
+      %{name: control} -> families_for_control_log(control)
+      _ -> []
+    end
+  end
+
+  def families_for_control_log(t) when is_atom(t) do
+    @families
+    |> Enum.filter(fn {_name, %{control_log: c}} -> c == t end)
+    |> Enum.map(fn {name, %{tag: tag}} -> {name, tag} end)
+    |> Enum.sort()
+  end
+
+  def families_for_control_log(_), do: []
+
+  @doc """
   The tag byte for a registered family name, or `:error` if unknown.
 
   ## Examples

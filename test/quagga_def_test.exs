@@ -212,4 +212,45 @@ defmodule QuaggaDefTest do
     assert :unknown == QuaggaDef.family_for_control_log(QuaggaDef.derived_log_base(1))
     assert :unknown == QuaggaDef.family_for_control_log("777")
   end
+
+  test "family_control_log" do
+    assert :challenge == QuaggaDef.family_control_log(:backgammon)
+    assert :app_discovery == QuaggaDef.family_control_log(:app)
+
+    # Unregistered family names
+    assert :error == QuaggaDef.family_control_log(:poker)
+    assert :error == QuaggaDef.family_control_log(:unknown)
+    assert :error == QuaggaDef.family_control_log("backgammon")
+  end
+
+  test "families_for_control_log" do
+    # By control log name, base id, and facetted id
+    assert [backgammon: 1] == QuaggaDef.families_for_control_log(:challenge)
+    assert [backgammon: 1] == QuaggaDef.families_for_control_log(777)
+
+    assert [backgammon: 1] ==
+             QuaggaDef.families_for_control_log(QuaggaDef.facet_log(:challenge, 9))
+
+    assert [app: 2] == QuaggaDef.families_for_control_log(:app_discovery)
+    assert [app: 2] == QuaggaDef.families_for_control_log(2777)
+
+    # A control log announcing no family, and junk
+    assert [] == QuaggaDef.families_for_control_log(:graph)
+    assert [] == QuaggaDef.families_for_control_log(1337)
+    assert [] == QuaggaDef.families_for_control_log(QuaggaDef.derived_log_base(1))
+    assert [] == QuaggaDef.families_for_control_log("777")
+
+    # A family name is not a control log; use family_control_log/1 to invert
+    assert [] == QuaggaDef.families_for_control_log(:backgammon)
+
+    # The partition covers every registered family exactly once
+    all = QuaggaDef.families()
+
+    partitioned =
+      QuaggaDef.control_logs()
+      |> Enum.flat_map(&QuaggaDef.families_for_control_log/1)
+      |> Enum.uniq()
+
+    assert Enum.sort(all) == Enum.sort(partitioned)
+  end
 end
