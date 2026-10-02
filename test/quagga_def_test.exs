@@ -148,27 +148,27 @@ defmodule QuaggaDefTest do
     assert :unknown == QuaggaDef.family_name(255)
   end
 
-  test "app discovery log" do
-    discovery = %{encoding: :cbor, type: :map, name: :app_discovery}
+  test "app listing log" do
+    listing = %{encoding: :cbor, type: :map, name: :listing}
 
-    assert 2777 == QuaggaDef.base_log(:app_discovery)
-    assert discovery == QuaggaDef.log_def(2777)
-    assert discovery == QuaggaDef.log_def(QuaggaDef.facet_log(2777, 1))
+    assert 2777 == QuaggaDef.base_log(:listing)
+    assert listing == QuaggaDef.log_def(2777)
+    assert listing == QuaggaDef.log_def(QuaggaDef.facet_log(2777, 1))
 
     # It is hand-allocated, so it never reads as a derived family log
     assert false == QuaggaDef.reserved_base_log?(2777)
     assert :unknown == QuaggaDef.family_for_block(2777)
 
-    # Facet iteration over the discovery log yields a full set
-    assert length(QuaggaDef.logs_for_name(:app_discovery)) == 256
-    assert 2777 in QuaggaDef.logs_for_name(:app_discovery)
+    # Facet iteration over the listing log yields a full set
+    assert length(QuaggaDef.logs_for_name(:listing)) == 256
+    assert 2777 in QuaggaDef.logs_for_name(:listing)
   end
 
   test "family_defs" do
     defs = QuaggaDef.family_defs()
 
     assert %{tag: 1, control_log: :challenge} == defs[:backgammon]
-    assert %{tag: 2, control_log: :app_discovery} == defs[:app]
+    assert %{tag: 2, control_log: :listing} == defs[:app]
     assert nil == defs[:poker]
   end
 
@@ -185,7 +185,7 @@ defmodule QuaggaDefTest do
 
     app_logs = QuaggaDef.control_logs(:app)
     assert length(app_logs) == 256
-    assert app_logs == QuaggaDef.logs_for_name(:app_discovery)
+    assert app_logs == QuaggaDef.logs_for_name(:listing)
 
     assert [] == QuaggaDef.control_logs(:poker)
 
@@ -196,26 +196,29 @@ defmodule QuaggaDefTest do
     assert MapSet.new(app_logs ++ backgammon_logs) == MapSet.new(all)
   end
 
-  test "family_for_control_log" do
-    # By base id, facetted id, and by control log name
-    assert :backgammon == QuaggaDef.family_for_control_log(777)
-    assert :backgammon == QuaggaDef.family_for_control_log(QuaggaDef.facet_log(:challenge, 9))
-    assert :backgammon == QuaggaDef.family_for_control_log(:challenge)
+  test "a control log announces every family registered to it, not just one" do
+    for {name, %{tag: tag, control_log: control}} <- QuaggaDef.family_defs() do
+      assert {name, tag} in QuaggaDef.families_for_control_log(control)
 
-    assert :app == QuaggaDef.family_for_control_log(2777)
-    assert :app == QuaggaDef.family_for_control_log(QuaggaDef.facet_log(:app_discovery, 3))
-    assert :app == QuaggaDef.family_for_control_log(:app_discovery)
+      # The three views of a control log agree: id, atom, and the family's own
+      id = QuaggaDef.control_log(name)
+      assert control == QuaggaDef.family_control_log(name)
+      assert control == QuaggaDef.log_def(id).name
+      assert QuaggaDef.families_for_control_log(id) == QuaggaDef.families_for_control_log(control)
+    end
 
-    # Logs that are not control logs, and junk
-    assert :unknown == QuaggaDef.family_for_control_log(1337)
-    assert :unknown == QuaggaDef.family_for_control_log(:graph)
-    assert :unknown == QuaggaDef.family_for_control_log(QuaggaDef.derived_log_base(1))
-    assert :unknown == QuaggaDef.family_for_control_log("777")
+    assert QuaggaDef.families_for_control_log(777) ==
+             QuaggaDef.families_for_control_log(:challenge)
+
+    assert QuaggaDef.families_for_control_log(2777) ==
+             QuaggaDef.families_for_control_log(:listing)
+
+    assert QuaggaDef.families_for_control_log(QuaggaDef.facet_log(:listing, 3)) == [app: 2]
   end
 
   test "family_control_log" do
     assert :challenge == QuaggaDef.family_control_log(:backgammon)
-    assert :app_discovery == QuaggaDef.family_control_log(:app)
+    assert :listing == QuaggaDef.family_control_log(:app)
 
     # Unregistered family names
     assert :error == QuaggaDef.family_control_log(:poker)
@@ -231,7 +234,7 @@ defmodule QuaggaDefTest do
     assert [backgammon: 1] ==
              QuaggaDef.families_for_control_log(QuaggaDef.facet_log(:challenge, 9))
 
-    assert [app: 2] == QuaggaDef.families_for_control_log(:app_discovery)
+    assert [app: 2] == QuaggaDef.families_for_control_log(:listing)
     assert [app: 2] == QuaggaDef.families_for_control_log(2777)
 
     # A control log announcing no family, and junk

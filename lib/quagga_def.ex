@@ -54,13 +54,18 @@ defmodule QuaggaDef do
   # Each family also names the *control log* through which its derived logs
   # are announced and discovered. A control log is a hand-allocated entry in
   # `@log_to_def`, so `control_logs/1` yields the facet-expanded scan list an
-  # index worker needs and `family_for_control_log/1` names the family a
-  # control-log entry belongs to.
+  # index worker needs and `families_for_control_log/1` names the families a
+  # control-log entry may belong to.
+  #
+  # That relation is one-to-many: a control log announces its families, and
+  # several may share one. `:challenge` carries game families (`:backgammon`
+  # today, more games later) and `:listing` carries app families (`:app`
+  # today). One log per kind of announcement, one family per ruleset.
   @family_backgammon 0x1
   @family_app 0x2
   @families %{
     backgammon: %{tag: @family_backgammon, control_log: :challenge},
-    app: %{tag: @family_app, control_log: :app_discovery}
+    app: %{tag: @family_app, control_log: :listing}
   }
   @log_to_def %{
     0 => %{encoding: :raw, type: "text/plain", name: :test},
@@ -72,7 +77,7 @@ defmodule QuaggaDef do
     749 => %{encoding: :cbor, type: :map, name: :tag},
     777 => %{encoding: :cbor, type: :map, name: :challenge},
     1337 => %{encoding: :cbor, type: :map, name: :graph},
-    2777 => %{encoding: :cbor, type: :map, name: :app_discovery},
+    2777 => %{encoding: :cbor, type: :map, name: :listing},
     7310 => %{encoding: :cbor, type: :map, name: :lexicon},
     8008 => %{encoding: :raw, type: "image/jpeg", name: :jpeg},
     8009 => %{encoding: :raw, type: "image/png", name: :png},
@@ -280,7 +285,7 @@ defmodule QuaggaDef do
   ## Examples
 
       iex> QuaggaDef.family_defs()[:app]
-      %{tag: 2, control_log: :app_discovery}
+      %{tag: 2, control_log: :listing}
 
   """
   @spec family_defs() :: %{optional(atom) => map}
@@ -370,42 +375,6 @@ defmodule QuaggaDef do
   end
 
   @doc """
-  The family announced through a control log, or `:unknown`.
-
-  Accepts a `log_id`/`base_log_id` or the control log's name atom. Log IDs
-  belonging to any other log return `:unknown`.
-
-  ## Examples
-
-      iex> QuaggaDef.family_for_control_log(777)
-      :backgammon
-
-      iex> QuaggaDef.family_for_control_log(:app_discovery)
-      :app
-
-      iex> QuaggaDef.family_for_control_log(1337)
-      :unknown
-
-  """
-  @spec family_for_control_log(log_id | base_log_id | atom) :: atom
-  def family_for_control_log(t) when is_atom(t) do
-    Enum.find_value(@families, :unknown, fn {name, %{control_log: c}} ->
-      if c == t, do: name
-    end)
-  end
-
-  def family_for_control_log(n) when is_integer(n) do
-    {base, _} = log_id_unpack(n)
-
-    case Map.get(@log_to_def, base) do
-      %{name: control} -> family_for_control_log(control)
-      _ -> :unknown
-    end
-  end
-
-  def family_for_control_log(_), do: :unknown
-
-  @doc """
   The control log a family publishes through, or `:error` if the family is
   unregistered.
 
@@ -417,7 +386,7 @@ defmodule QuaggaDef do
       :challenge
 
       iex> QuaggaDef.family_control_log(:app)
-      :app_discovery
+      :listing
 
       iex> QuaggaDef.family_control_log(:poker)
       :error
@@ -439,8 +408,11 @@ defmodule QuaggaDef do
 
   Accepts the control log's name atom or a `log_id`/`base_log_id`. This is the
   filter to apply when a form or policy is scoped to a single control log —
-  a control log announces only its own families. Control logs announcing no
-  family, and unregistered logs, return `[]`.
+  a control log announces its own families and no others.
+
+  The relation is one-to-many, so this returns a list: `:challenge` announces
+  game families, `:listing` announces app families, and either may grow. A
+  control log naming no family, and an unregistered log, return `[]`.
 
   ## Examples
 
@@ -450,7 +422,7 @@ defmodule QuaggaDef do
       iex> QuaggaDef.families_for_control_log(777)
       [backgammon: 1]
 
-      iex> QuaggaDef.families_for_control_log(:app_discovery)
+      iex> QuaggaDef.families_for_control_log(:listing)
       [app: 2]
 
       iex> QuaggaDef.families_for_control_log(:graph)

@@ -4,7 +4,7 @@ defmodule QuaggaDef.MixProject do
   def project do
     [
       app: :quagga_def,
-      version: "0.12.1",
+      version: "0.13.0",
       elixir: "~> 1.14",
       name: "QuaggaDef",
       source_url: "https://github.com/mwmiller/quagga_def",
